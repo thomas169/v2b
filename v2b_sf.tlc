@@ -1,0 +1,141 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Project:     Vector to Bud
+%%
+%% File:        v2b_sf.tlc
+%%
+%% Description: Inline tlc file for vector to bus conversion. The related
+%%              source file using simtruct macros not suitable for codegen
+%%              so this TLC file is required. 
+%%
+%% Notes:       Probably buggy.
+%%
+%% Revisions:   1.00 11/11/19 (tf) first release
+%%
+%% See also:    v2b_sf.c
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%implements "v2b_sf" "C"
+
+%% Function: NUMEL ========================================================
+%% Abstract: Returns number of elements in an expresion
+%function NUMEL(expr) void
+    %assign exprDims = SIZE(expr)
+    %return exprDims[0] * exprDims[1]
+%endfunction
+
+%% Function: ExploreBusOutput =============================================
+%% Abstract: Initialization code for each type of block
+%function VectorAppend(vector1,vector2) void
+    %foreach n = NUMEL(vector2)
+        %assign vector1 = vector1 + vector2[n]
+    %endforeach
+    %return vector1
+%endfunction
+
+
+%% Function: ExploreBusOutput =============================================
+%% Abstract: Initialization code for each type of block
+%function GetSignalName(sigKind,delAddr,portNum) void
+    
+    %if sigKind == "input" || sigKind == "ip"
+        %assign sigAddrName = LibBlockInputSignalAddr(portNum,"","",0)
+    %elseif sigKind == "output" || sigKind == "op"
+        %assign sigAddrName = LibBlockOutputSignalAddr(portNum,"","",0)
+    %else
+        %<LibBlockReportError([],"Invalid sigKind")>
+    %endif
+
+    %if delAddr && sigAddrName[0] == "&" 
+        %foreach n = NUMEL(sigAddrName)
+            %if n == 0 
+                %assign sigName = ""
+            %else 
+                %assign sigName = sigName + sigAddrName[n]
+            %endif
+        %endforeach
+    %else
+        %assign sigName = sigAddrName
+    %endif
+
+    %return sigName
+
+%endfunction
+
+%% Function: ExploreBusTypes =============================================
+%% Abstract: Initialization code for each type of block
+%function ExploreBusTypes(block, system, id) void
+    %assign types = []
+    %foreach n = LibDataTypeNumElements(id)
+        %assign elemId = LibDataTypeElementDataTypeId(id, n)
+        %if LibDataTypeNumElements(elemId) > 0
+            %assign newTypes = ExploreBusTypes(block, system, elemId)
+            %assign types = VectorAppend(types,newTypes)
+        %else
+            %assign types = types + LibDataTypeElementDataTypeId(id,n)
+        %endif
+    %endforeach
+    %return types
+%endfunction
+
+%% Function: ExploreBusSizes ==============================================
+%% Abstract: Initialization code for each type of block
+%function ExploreBusSizes(block, system, id) void
+    %assign sizes = []
+    %foreach n = LibDataTypeNumElements(id)
+        %assign elemId = LibDataTypeElementDataTypeId(id, n)
+        %if LibDataTypeNumElements(elemId) > 0
+            %assign newSizes = ExploreBusSizes(block, system, elemId)
+            %assign sizes = VectorAppend(sizes,newSizes)
+        %else
+            %assign newDims = 1
+            %assign childNDims = LibDataTypeElementNumDimensions(id, n)
+            %assign childDims = LibDataTypeElementDimensions(id, n)
+            %foreach m = childNDims
+                %assign newDims = newDims * childDims[m]
+            %endforeach
+            %assign sizes = sizes + newDims
+        %endif
+    %endforeach
+    %return sizes
+%endfunction
+
+%% Function: ExploreBusNames =============================================
+%% Abstract: Initialization code for each type of block
+%function ExploreBusNames(block, system, id, parent) void
+    %assign names = []
+    %foreach n = LibDataTypeNumElements(id)
+        %assign elemId = LibDataTypeElementDataTypeId(id, n)
+        %if LibDataTypeNumElements(elemId) > 0
+            %assign element = parent + "." + LibDataTypeElementName(id,n)
+            %assign newNames = ExploreBusNames(block, system, elemId, element)
+            %assign names = VectorAppend(names,newNames)
+        %else
+            %assign names = names + "%<parent>.%<LibDataTypeElementName(id,n)>"
+        %endif
+    %endforeach
+    %return names
+%endfunction
+
+%% Function: Outputs ======================================================
+%% Abstract: Initialization code for each type of block
+%function Outputs(block, system) Output
+    {
+        %assign iPort = 0
+        %assign ipSidx = 0
+        %assign id = LibBlockOutputSignalDataTypeId(iPort)
+        %assign opSignals = ExploreBusNames(block, system, id, GetSignalName("op",TLC_TRUE,iPort))
+        %assign opTypes = ExploreBusTypes(block, system, id)
+        %assign opSizes  = ExploreBusSizes(block, system, id)
+        %foreach n = NUMEL(opSignals)
+            %assign size = opSizes[n]
+            %if size > 1
+                %foreach m = size
+                    %<opSignals[n]>[%<m>] = (%<LibGetDataTypeNameFromId(opTypes[n])>) %<LibBlockInputSignal(iPort,"","",ipSidx+m)>; 
+                %endforeach
+            %else
+                %<opSignals[n]> = (%<LibGetDataTypeNameFromId(opTypes[n])>) %<LibBlockInputSignal(iPort,"","",ipSidx)>; 
+            %endif
+            %assign ipSidx = ipSidx + size
+        %endforeach
+    }
+%endfunction
